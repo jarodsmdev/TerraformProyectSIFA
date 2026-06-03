@@ -69,11 +69,11 @@ La infraestructura sigue un patrón de arquitectura de red con subnets públicas
 ## Estructura del Proyecto
 
 ```
-SIFA/
 ├── main.tf                 # Configuración principal del proyecto
-├── variables.tf            # Definición de variables
+├── variables.tf            # Definición de variables (definidas en módulos)
 ├── outputs.tf              # Outputs de la infraestructura
 ├── .terraform/             # Directorio de estado local (no versionar)
+├── .terraform.lock.hcl     # Lock file de proveedores (no versionar)
 ├── .gitignore              # Archivos ignorados por Git
 ├── modules/                # Módulos reutilizables
 │   ├── vpc/                # Módulo de red virtual
@@ -95,7 +95,12 @@ SIFA/
 │   └── scripts/            # Scripts de inicialización
 │       └── docker-install.sh
 ├── bootstrap/              # Configuración del backend Terraform
-└── DOCS/                   # Documentación adicional
+│   └── backend-bootstrap.tf
+├── DOCS/                   # Documentación adicional
+│   ├── ARCHITECTURE.md
+│   └── SSHEC2PublicToEC2Private.md
+└── PAIR_KEYS/              # Claves SSH (no versionadas)
+    └── README.md
 ```
 
 ## Requisitos Previos
@@ -310,7 +315,6 @@ El bucket del backend de Terraform (`sifa-terraform-state`) y la tabla de locks 
 ## Documentación Adicional
 
 - [Arquitectura Detallada](./DOCS/ARCHITECTURE.md)
-- [Despliegue y Resumen](./DOCS/DEPLOYMENT_SUMMARY.md)
 - [Configuración SSH](./DOCS/SSHEC2PublicToEC2Private.md)
 
 ## Contribuir

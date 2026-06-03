@@ -1,3 +1,29 @@
+############################################
+# CONFIGURACIÓN DEL LABORATORIO
+############################################
+locals {
+  region = "us-east-1"
+
+  project_name = "SIFA"
+
+  # S3
+  bucket_name = "sifa-core-images-quisco"
+
+  # PAIR KEY
+  key_name = "SIFA-KEY"
+
+  # Elastic IP del gateway
+  gateway_eip_allocation_id = "eipalloc-07238f86a5fb036d7"
+
+  # AMI Ubuntu
+  ubuntu_ami = "ami-05cf1e9f73fbad2e2"
+
+  gateway_private_ip = "10.0.1.10"
+  auth_private_ip    = "10.0.2.10"
+  plate_private_ip   = "10.0.2.20"
+  core_private_ip    = "10.0.2.30"
+}
+
 terraform {
   backend "s3" {
     bucket         = "sifa-terraform-state"
@@ -8,7 +34,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = local.region
 }
 
 module "vpc" {
@@ -101,25 +127,25 @@ module "private_sg" {
 module "s3_images" {
   source = "./modules/s3"
 
-  bucket_name  = "sifa-core-images-quisco" # Debe ser único globalmente
-  project_name = "SIFA"
+  bucket_name  = local.bucket_name # Debe ser único globalmente
+  project_name = local.project_name
 }
 
-# EC2 en subnet pública con EIP (API-Gateway) IP: 44.196.188.33
+# EC2 en subnet pública con EIP (API-Gateway) IP: 3.219.255.24
 module "public_ec2" {
   source = "./modules/ec2"
 
   name               = "sifa-gateway"
-  ami                = "ami-05cf1e9f73fbad2e2"
+  ami                = local.ubuntu_ami
   instance_type      = "t3.micro"
   subnet_id          = module.vpc.public_subnet_id
   security_group_ids = [module.public_sg.sg_id]
-  private_ip         = "10.0.1.10" // Asignación de IP privada en la subnet pública
+  private_ip         = local.gateway_private_ip // Asignación de IP privada en la subnet pública
 
-  key_name = "SIFA-KEY"
+  key_name = local.key_name
 
   associate_eip = true
-  allocation_id = "eipalloc-0c11d059c4fb31d00" // Reemplaza con tu Allocation ID del EIP creado para el NAT Gateway IP: 44.196.188.33
+  allocation_id = local.gateway_eip_allocation_id // Reemplaza con tu Allocation ID del EIP creado para el NAT Gateway IP: 3.219.255.24
 
   user_data = file("${path.root}/modules/scripts/docker-install.sh")
 }
@@ -129,13 +155,13 @@ module "private_ec2" {
   source = "./modules/ec2"
 
   name               = "sifa-auth"
-  ami                = "ami-05cf1e9f73fbad2e2"
+  ami                = local.ubuntu_ami
   instance_type      = "t3.micro"
   subnet_id          = module.vpc.private_subnet_id
   security_group_ids = [module.private_sg.sg_id]
-  private_ip         = "10.0.2.10" // Asignación de IP privada en la subnet privada
+  private_ip         = local.auth_private_ip // Asignación de IP privada en la subnet privada
 
-  key_name = "SIFA-KEY"
+  key_name = local.key_name
 
   associate_eip = false
 
@@ -147,13 +173,13 @@ module "private_ec2_plate" {
   source = "./modules/ec2"
 
   name               = "sifa-plate"
-  ami                = "ami-05cf1e9f73fbad2e2"
+  ami                = local.ubuntu_ami
   instance_type      = "t3.large"
   subnet_id          = module.vpc.private_subnet_id
   security_group_ids = [module.private_sg.sg_id]
-  private_ip         = "10.0.2.20" // Asignación de IP privada en la subnet privada
+  private_ip         = local.plate_private_ip // Asignación de IP privada en la subnet privada
 
-  key_name = "SIFA-KEY"
+  key_name = local.key_name
 
   associate_eip = false
 
@@ -164,15 +190,15 @@ module "private_ec2_plate" {
 module "private_ec2_core" {
   source = "./modules/ec2"
 
-  name               = "sifa-core"
-  ami                = "ami-05cf1e9f73fbad2e2"
-  instance_type      = "t3.micro"
-  subnet_id          = module.vpc.private_subnet_id
-  security_group_ids = [module.private_sg.sg_id]
-  private_ip         = "10.0.2.30" // Asignación de IP privada en la subnet privada
+  name                 = "sifa-core"
+  ami                  = local.ubuntu_ami
+  instance_type        = "t3.micro"
+  subnet_id            = module.vpc.private_subnet_id
+  security_group_ids   = [module.private_sg.sg_id]
+  private_ip           = local.core_private_ip // Asignación de IP privada en la subnet privada
   iam_instance_profile = "EMR_EC2_DefaultRole" // Perfil de IAM para permitir acceso a S3 desde la instancia
 
-  key_name = "SIFA-KEY"
+  key_name = local.key_name
 
   associate_eip = false
 
