@@ -1,7 +1,12 @@
 # Created by https://www.toptal.com/developers/gitignore/api/terraform
 # Edit at https://www.toptal.com/developers/gitignore?templates=terraform
 
+### Par de llaves AWS
+*.pem
+
 ### Terraform ###
+*.hcl
+
 # Local .terraform directories
 **/.terraform/*
 
