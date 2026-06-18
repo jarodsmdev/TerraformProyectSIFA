@@ -35,6 +35,13 @@ locals {
 }
 
 terraform {
+  required_providers {
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.12"
+    }
+  }
+
   backend "s3" {
     bucket         = "sifa-terraform-state"
     key            = "infra/terraform.tfstate"
@@ -46,6 +53,8 @@ terraform {
 provider "aws" {
   region = local.region
 }
+
+provider "time" {}
 
 module "vpc" {
   source = "./modules/vpc"
@@ -175,6 +184,13 @@ module "mysql_sg" {
   ]
 }
 
+# Esperar a que el NAT Gateway esté disponible antes de lanzar EC2 privadas
+resource "time_sleep" "wait_for_nat" {
+  depends_on = [module.vpc]
+
+  create_duration = "90s"
+}
+
 # S3 para imágenes
 module "s3_images" {
   source = "./modules/s3"
@@ -206,6 +222,8 @@ module "public_ec2" {
 module "private_ec2" {
   source = "./modules/ec2"
 
+  depends_on = [time_sleep.wait_for_nat]
+
   name               = "sifa-auth"
   ami                = local.ubuntu_ami
   instance_type      = "t3.micro"
@@ -223,6 +241,8 @@ module "private_ec2" {
 # EC2 en subnet privada sin EIP (Plate-Service)
 module "private_ec2_plate" {
   source = "./modules/ec2"
+
+  depends_on = [time_sleep.wait_for_nat]
 
   name               = "sifa-plate"
   ami                = local.ubuntu_ami
@@ -243,6 +263,8 @@ module "private_ec2_plate" {
 # EC2 en subnet privada sin EIP (Sifa-Core-Service)
 module "private_ec2_core" {
   source = "./modules/ec2"
+
+  depends_on = [time_sleep.wait_for_nat]
 
   name                 = "sifa-core"
   ami                  = local.ubuntu_ami
