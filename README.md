@@ -17,7 +17,7 @@ Este repositorio contiene la definición de infraestructura como código (IaC) p
 
 ## Descripción General
 
-El proyecto SIFA (Sistema de Inteligencia para Fiscalización Automática) es una aplicación distribuida compuesta por múltiples microservicios desplegados en instancias EC2 de AWS. La infraestructura se gestiona completamente con Terraform, utilizando un backend remoto en S3 para el almacenamiento del estado (state) y DynamoDB para el locking de estados.
+El proyecto SIFA (Sistema de Inteligencia para Fiscalización Automática) es una aplicación distribuida compuesta por múltiples microservicios desplegados en instancias EC2 de AWS. La infraestructura se gestiona completamente con Terraform, utilizando un backend remoto en S3 para el almacenamiento del estado con lock file.
 
 ### Componentes de la Infraestructura
 
@@ -27,6 +27,7 @@ El proyecto SIFA (Sistema de Inteligencia para Fiscalización Automática) es un
 | Auth Service | EC2 Privada | Servicio de autenticación |
 | Plate Service | EC2 Privada | Servicio de gestión de platos/comidas |
 | SIFA Core | EC2 Privada | Servicio principal con acceso a S3 |
+| MySQL | EC2 Pública | Base de datos MySQL con EIP opcional |
 | S3 Images | Bucket S3 | Almacenamiento público para imágenes |
 
 ## Arquitectura
@@ -43,19 +44,21 @@ La infraestructura sigue un patrón de arquitectura de red con subnets públicas
               Public Subnet                            Private Subnet
                (10.0.1.0/24)                            (10.0.2.0/24)
                     |                                       |
-              +-----------+                         +---------------+
-              |  sifa-    |                         |    sifa-      |
-              |  gateway  |                         |    auth       |
-              | 10.0.1.10 |                         |    10.0.2.10  |
-              +-----------+                         +---------------+
-              |  EIP       |                         |    sifa-      |
-              | 44.x.x.x   |                         |    plate      |
-              +-----------+                         |    10.0.2.20  |
-                                                   +---------------+
-                                                   |    sifa-      |
-                                                   |    core       |
-                                                   |    10.0.2.30  |
-                                                   +---------------+
+               +-----------+                         +---------------+
+               |  sifa-    |                         |    sifa-      |
+               |  gateway  |                         |    auth       |
+               | 10.0.1.10 |                         |    10.0.2.10  |
+               +-----------+                         +---------------+
+               |  EIP       |                         |    sifa-      |
+               | 44.x.x.x   |                         |    plate      |
+               +-----------+                         |    10.0.2.20  |
+               |  sifa-    |                         +---------------+
+               |  mysql    |                         |    sifa-      |
+               | 10.0.1.40 |                         |    core       |
+               +-----------+                         |    10.0.2.30  |
+               |  EIP       |                         +---------------+
+               | (opcional) |
+               +-----------+
 ```
 
 ### Componentes de Red
@@ -72,8 +75,7 @@ La infraestructura sigue un patrón de arquitectura de red con subnets públicas
 ├── main.tf                 # Configuración principal del proyecto
 ├── variables.tf            # Definición de variables (definidas en módulos)
 ├── outputs.tf              # Outputs de la infraestructura
-├── .terraform/             # Directorio de estado local (no versionar)
-├── .terraform.lock.hcl     # Lock file de proveedores (no versionar)
+├── .terraform.lock.hcl     # Lock file de proveedores (versionar)
 ├── .gitignore              # Archivos ignorados por Git
 ├── modules/                # Módulos reutilizables
 │   ├── vpc/                # Módulo de red virtual
@@ -81,6 +83,10 @@ La infraestructura sigue un patrón de arquitectura de red con subnets públicas
 │   │   ├── variables.tf
 │   │   └── outputs.tf
 │   ├── ec2/                # Módulo de instancias EC2
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   ├── mysql/              # Módulo de MySQL
 │   │   ├── main.tf
 │   │   ├── variables.tf
 │   │   └── outputs.tf
@@ -94,7 +100,7 @@ La infraestructura sigue un patrón de arquitectura de red con subnets públicas
 │   │   └── outputs.tf
 │   └── scripts/            # Scripts de inicialización
 │       └── docker-install.sh
-├── bootstrap/              # Configuración del backend Terraform
+├── bootstrap/              # Backend remoto (crear bucket S3)
 │   └── backend-bootstrap.tf
 ├── DOCS/                   # Documentación adicional
 │   ├── ARCHITECTURE.md
@@ -109,10 +115,9 @@ Para utilizar este repositorio necesitas:
 
 1. **Terraform** versión 1.0 o superior
 2. **AWS CLI** configurado con credenciales válidas
-3. **Python key pair** llamado `SIFA-KEY` creado en AWS
-4. **Bucket S3** para el backend de Terraform: `sifa-terraform-state`
-5. **Tabla DynamoDB** para locks: `terraform-locks`
-6. **Elastic IP** pre-asignada para el API Gateway
+3. **Key pair** llamado `SIFA-KEY` creado en AWS
+4. **Elastic IP** pre-asignada para el API Gateway
+5. **Elastic IP** (opcional) pre-asignada para MySQL si se requiere acceso público
 
 ### Instalación de Terraform
 
@@ -129,11 +134,28 @@ rm terraform_1.7.5_linux_amd64.zip
 
 ### 1. Configurar el Backend
 
-El proyecto utiliza S3 como backend remoto. Asegúrate de que el bucket y la tabla de locks existan antes de ejecutar Terraform:
+El proyecto usa **S3 como backend remoto** con lock file (`use_lockfile`). El bucket `sifa-terraform-state` debe existir antes de inicializar.
+
+**Opción A — Bootstrap con Terraform:**
 
 ```bash
-# Verificar backend actual
-cat main.tf
+cd bootstrap/
+terraform init
+terraform apply -auto-approve
+cd ..
+```
+
+**Opción B — Manual (AWS CLI):**
+
+```bash
+aws s3 mb s3://sifa-terraform-state --region us-east-1
+aws s3api put-bucket-versioning --bucket sifa-terraform-state --versioning-configuration Status=Enabled
+```
+
+Luego inicializar el proyecto:
+
+```bash
+terraform init
 ```
 
 ### 2. Variables de Entorno de AWS
@@ -229,6 +251,7 @@ El proyecto define las siguientes variables en los módulos:
 | `private_ip` | string | null | IP privada estática |
 | `iam_instance_profile` | string | null | Perfil de IAM |
 | `user_data` | string | null | Script de inicialización |
+| `root_volume_size` | number | 8 | Tamaño del disco raíz en GB |
 
 ### Módulo S3
 
@@ -247,6 +270,43 @@ El proyecto define las siguientes variables en los módulos:
 | `vpc_id` | string | ID de la VPC |
 | `ingress_rules` | list(object) | Reglas de entrada |
 | `egress_rules` | list(object) | Reglas de salida |
+
+### Módulo MySQL
+
+| Variable | Tipo | Valor por Defecto | Descripción |
+|----------|------|-------------------|--------------|
+| `name` | string | - | Nombre de la instancia |
+| `ami` | string | ami-05cf1e9f73fbad2e2 | ID de la AMI (Ubuntu 22.04) |
+| `instance_type` | string | t3.micro | Tipo de instancia |
+| `subnet_id` | string | - | ID de la subnet |
+| `security_group_ids` | list(string) | - | IDs de security groups |
+| `key_name` | string | - | Nombre del key pair |
+| `private_ip` | string | null | IP privada estática |
+| `mysql_user` | string | - | Usuario de MySQL |
+| `mysql_password` | string | - | Contraseña de MySQL |
+| `associate_eip` | bool | false | Asociar IP elástica |
+| `allocation_id` | string | null | ID de asignación de EIP |
+
+### Configuración desde `locals` (en `main.tf`)
+
+Además de las variables de módulo, los siguientes valores se configuran directamente en el bloque `locals` del archivo `main.tf`:
+
+| Variable | Valor por Defecto | Descripción |
+|----------|-------------------|--------------|
+| `region` | us-east-1 | Región de AWS |
+| `project_name` | SIFA | Nombre del proyecto |
+| `bucket_name` | sifa-core-images-quisco | Nombre del bucket S3 |
+| `key_name` | SIFA-KEY | Key pair de EC2 |
+| `gateway_eip_allocation_id` | eipalloc-... | EIP del API Gateway |
+| `ubuntu_ami` | ami-05cf1e9f73fbad2e2 | AMI base para todas las EC2 |
+| `gateway_private_ip` | 10.0.1.10 | IP privada del Gateway |
+| `auth_private_ip` | 10.0.2.10 | IP privada del Auth Service |
+| `plate_private_ip` | 10.0.2.20 | IP privada del Plate Service |
+| `core_private_ip` | 10.0.2.30 | IP privada del SIFA Core |
+| `mysql_private_ip` | 10.0.1.40 | IP privada de MySQL |
+| `mysql_user` | adminroot | Usuario de MySQL |
+| `mysql_password` | adminroot123 | Contraseña de MySQL |
+| `mysql_allocation_id` | null | EIP para MySQL (null = sin EIP) |
 
 ## Outputs
 
@@ -268,6 +328,11 @@ private_ec2_core    # Información de la EC2 Core
 private_ec2_plate   # Información de la EC2 Plate
   - name
   - private_ip
+mysql               # Información de la EC2 MySQL
+  - name
+  - private_ip
+  - public_ip       # null si no se asoció EIP
+  - instance_id
 ```
 
 ## Seguridad
@@ -276,7 +341,7 @@ private_ec2_plate   # Información de la EC2 Plate
 
 1. **Credenciales AWS**: Nunca expongas tus credenciales en el repositorio. Utiliza variables de entorno o perfiles de AWS CLI.
 
-2. **Estado de Terraform**: El estado contiene información sensible. Se utiliza backend S3 con locking en DynamoDB para evitar conflictos.
+2. **Estado de Terraform**: El estado contiene información sensible. Se utiliza backend S3 con lock file para evitar conflictos.
 
 3. **Security Groups**: Los security groups configurados permiten acceso desde internet en puertos específicos. Revisa y ajusta según tus necesidades.
 
@@ -288,6 +353,7 @@ private_ec2_plate   # Información de la EC2 Plate
 
 - **22**: SSH (desde cualquier IP: 0.0.0.0/0) - API Gateway
 - **80**: HTTP (desde cualquier IP: 0.0.0.0/0) - API Gateway
+- **3306**: MySQL (desde cualquier IP: 0.0.0.0/0 y desde subnet privada 10.0.2.0/24) - MySQL
 - **ICMP**: Desde la VPC (10.0.0.0/16) - Diagnóstico
 
 ## Limpieza de Recursos
@@ -309,8 +375,6 @@ terraform destroy -auto-approve
 - NAT Gateway y Elastic IP
 - Security Groups
 - Subnets y VPC
-
-El bucket del backend de Terraform (`sifa-terraform-state`) y la tabla de locks (`terraform-locks`) deben eliminarse manualmente desde la consola de AWS si ya no son necesarios.
 
 ## Documentación Adicional
 

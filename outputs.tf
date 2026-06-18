@@ -31,3 +31,12 @@ output "private_ec2_plate" {
     private_ip = module.private_ec2_plate.private_ip
   }
 }
+
+output "mysql" {
+  value = {
+    name        = "sifa-mysql"
+    private_ip  = module.mysql.private_ip
+    public_ip   = module.mysql.public_ip
+    instance_id = module.mysql.instance_id
+  }
+}

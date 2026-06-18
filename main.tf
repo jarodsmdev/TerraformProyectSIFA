@@ -13,7 +13,10 @@ locals {
   key_name = "SIFA-KEY"
 
   # Elastic IP del gateway
-  gateway_eip_allocation_id = "eipalloc-07238f86a5fb036d7"
+  gateway_eip_allocation_id = "eipalloc-0620bd74313d9c8ea"
+
+  # Elastic IP para MySQL (opcional — dejar null si no se requiere)
+  mysql_allocation_id = "eipalloc-0b57903ad5ee8118c"
 
   # AMI Ubuntu
   ubuntu_ami = "ami-05cf1e9f73fbad2e2"
@@ -22,6 +25,13 @@ locals {
   auth_private_ip    = "10.0.2.10"
   plate_private_ip   = "10.0.2.20"
   core_private_ip    = "10.0.2.30"
+
+  # MySQL
+  mysql_private_ip = "10.0.1.40"
+  mysql_user       = "adminroot"
+  mysql_password   = "adminroot123"
+
+
 }
 
 terraform {
@@ -29,7 +39,7 @@ terraform {
     bucket         = "sifa-terraform-state"
     key            = "infra/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "terraform-locks"
+    use_lockfile   = true
   }
 }
 
@@ -130,6 +140,41 @@ module "private_sg" {
   ]
 }
 
+# Security Group para MySQL
+module "mysql_sg" {
+  source = "./modules/sg"
+
+  name        = "sifa-mysql-sg"
+  description = "MySQL access for SIFA"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress_rules = [
+    {
+      from_port   = 3306
+      to_port     = 3306
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Allow MySQL from internet"
+    },
+    {
+      from_port   = 3306
+      to_port     = 3306
+      protocol    = "tcp"
+      cidr_blocks = ["10.0.2.0/24"]
+      description = "Allow MySQL from private subnet"
+    }
+  ]
+
+  egress_rules = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  ]
+}
+
 # S3 para imágenes
 module "s3_images" {
   source = "./modules/s3"
@@ -190,6 +235,8 @@ module "private_ec2_plate" {
 
   associate_eip = false
 
+  root_volume_size = 20
+
   user_data = file("${path.root}/modules/scripts/docker-install.sh")
 }
 
@@ -210,4 +257,23 @@ module "private_ec2_core" {
   associate_eip = false
 
   user_data = file("${path.root}/modules/scripts/docker-install.sh")
+}
+
+# EC2 en subnet pública con EIP (MySQL)
+module "mysql" {
+  source = "./modules/mysql"
+
+  name               = "sifa-mysql"
+  ami                = local.ubuntu_ami
+  instance_type      = "t3.micro"
+  subnet_id          = module.vpc.public_subnet_id
+  security_group_ids = [module.mysql_sg.sg_id]
+  private_ip         = local.mysql_private_ip
+  key_name           = local.key_name
+
+  mysql_user     = local.mysql_user
+  mysql_password = local.mysql_password
+
+  associate_eip = local.mysql_allocation_id != null ? true : false
+  allocation_id = local.mysql_allocation_id
 }
