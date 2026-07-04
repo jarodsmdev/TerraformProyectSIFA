@@ -9,6 +9,9 @@
     <img src="https://img.shields.io/badge/Ubuntu-22.04-E95420?logo=ubuntu&logoColor=white" alt="Ubuntu">
     <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker">
     <img src="https://img.shields.io/badge/License-Educational-2ea44f" alt="License">
+    <a href="https://www.linkedin.com/in/leonel-briones-palacios/">
+      <img src="https://img.shields.io/badge/LinkedIn-Leonel%20Briones-0A66C2?logo=linkedin&logoColor=white" alt="LinkedIn">
+    </a>
   </p>
 </div>
 
@@ -527,19 +530,58 @@ El archivo `.terraform.lock.hcl` está ignorado por `.gitignore` (patrón `*.hcl
 
 ## Limpieza de Recursos
 
-Para destruir toda la infraestructura:
+Para destruir toda la infraestructura y evitar costos en AWS cuando no esté en uso:
+
+### 1. Inicializar y sincronizar con el backend remoto
+
+```bash
+terraform init
+```
+
+Esto descarga el estado actual desde S3 (`sifa-terraform-state`) y lo sincroniza localmente.
+
+### 2. Verificar los recursos gestionados
+
+```bash
+terraform state list
+```
+
+Muestra todos los recursos que Terraform destruirá.
+
+### 3. Revisar el plan de destrucción
+
+```bash
+terraform plan -destroy
+```
+
+### 4. Destruir la infraestructura
 
 ```bash
 terraform destroy
 ```
 
-Para destruir con auto-aprobación:
+Revisa el plan y confirma escribiendo `yes`. Para auto-aprobar:
 
 ```bash
 terraform destroy -auto-approve
 ```
 
-> ⚠️ **Advertencia**: Esta acción eliminará **todos** los recursos: EC2, S3, NAT Gateway, EIPs, Security Groups, Subnets y VPC. Los datos en S3 y las bases de datos MySQL se perderán irreversiblemente.
+### 5. Verificar que no quedan recursos
+
+```bash
+terraform state list
+# Debería devolver "No state file was found!"
+```
+
+> ⚠️ **Advertencia**: Esta acción eliminará **todos** los recursos de forma irreversible:
+> - **5 instancias EC2** (Gateway, Auth, Plate, Core, MySQL)
+> - **Bucket S3** de imágenes (incluyendo todos los objetos)
+> - **NAT Gateway** y su Elastic IP asociada
+> - **Security Groups** (público, privado, MySQL)
+> - **Subnets** y **Route Tables** (pública y privada)
+> - **VPC** completa
+>
+> Las EIPs pre-existentes (Gateway y MySQL) se **desasocian** pero **no se liberan**, sólo se elimina la asociación a las instancias.
 
 ---
 
@@ -584,3 +626,7 @@ terraform destroy -auto-approve
 ## Licencia
 
 Este proyecto es **con fines educativos y de desarrollo**. No está diseñado para uso en producción sin las adaptaciones de seguridad correspondientes.
+
+---
+
+Creado por [Leonel Briones Palacios](https://www.linkedin.com/in/leonel-briones-palacios/)
