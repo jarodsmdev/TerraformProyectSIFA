@@ -7,13 +7,13 @@ locals {
   project_name = "SIFA"
 
   # S3
-  bucket_name = "sifa-core-images-quisco"
+  bucket_name = "sifa-core-images-quisco-lab"
 
   # PAIR KEY
   key_name = "SIFA-KEY"
 
   # Elastic IP del gateway
-  gateway_eip_allocation_id = "eipalloc-07238f86a5fb036d7"
+  gateway_eip_allocation_id = "eipalloc-07fd2bc7b5a30ceaf"
 
   # AMI Ubuntu
   ubuntu_ami = "ami-05cf1e9f73fbad2e2"
@@ -26,7 +26,7 @@ locals {
 
 terraform {
   backend "s3" {
-    bucket         = "sifa-terraform-state"
+    bucket         = "sifa-terraform-state-3"
     key            = "infra/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-locks"
@@ -110,6 +110,13 @@ module "private_sg" {
       protocol        = "tcp"
       security_groups = [module.public_sg.sg_id]
     },
+    {
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["10.0.2.0/24"] # El CIDR de tu subred privada
+      description = "Allow HTTP between internal microservices"
+    }
 
   ]
 

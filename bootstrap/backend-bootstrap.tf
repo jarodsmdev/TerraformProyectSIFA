@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "tf_state" {
-  bucket = "sifa-terraform-state"
+  bucket = "sifa-terraform-state-3"
 
   tags = {
     Name = "sifa-tf-state"
