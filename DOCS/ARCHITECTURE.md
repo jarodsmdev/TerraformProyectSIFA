@@ -68,7 +68,7 @@ Reglas de entrada:
 Reglas de salida: todo el tráfico (0.0.0.0/0).
 
 ### sifa-private-sg
-Reglas de entrada:
+Asociado a `sifa-auth`, `sifa-plate` y `sifa-core`. Reglas de entrada:
 
 | Puerto | Protocolo | Origen | Descripción |
 |--------|-----------|--------|-------------|
@@ -76,6 +76,15 @@ Reglas de entrada:
 | 80 | TCP | sifa-public-sg | HTTP desde el gateway |
 
 Reglas de salida: todo el tráfico (0.0.0.0/0).
+
+> No existe regla `10.0.2.0/24` de HTTP entre microservicios: se eliminó para
+> impedir el bypass al API Gateway.
+
+### sifa-auth-sg (adicional en sifa-auth)
+Ingress: 80/22 desde `sifa-public-sg`. Egress: todo.
+
+### sifa-core-internal-sg (adicional en sifa-core)
+Ingress: 80 desde `sifa-auth-sg` (llamada Feign de auditoría). Egress: todo.
 
 ## Almacenamiento
 
@@ -96,3 +105,13 @@ Reglas de salida: todo el tráfico (0.0.0.0/0).
 2. **Gateway → Servicios Privados**: `sifa-gateway` reenvía peticiones a `sifa-auth`, `sifa-plate` o `sifa-core` en la subred privada (puerto 80).
 3. **Salida a internet desde privada**: Las instancias privadas salen a internet a través del NAT Gateway ubicado en la subred pública.
 4. **SIFA Core → S3**: `sifa-core` tiene un perfil IAM (`EMR_EC2_DefaultRole`) que le permite acceder al bucket S3 de imágenes.
+
+## Cierre del bypass (defensa en profundidad)
+
+1. **Red**: los SGs de los servicios privados solo aceptan HTTP desde `sifa-public-sg`
+   (y core, adicionalmente, desde `sifa-auth-sg` para auditoría). Se eliminó la regla
+   de ingress `10.0.2.0/24`.
+2. **Puerto publicado**: los contenedores hacen bind a la IP privada de la instancia
+   (`10.0.2.x:80`), no a todas las interfaces.
+3. **Canal interno**: el gateway añade `X-Internal-Key` (`INTERNAL_CHANNEL_KEY`);
+   auth, core y plate la exigen y responden `403` si falta.

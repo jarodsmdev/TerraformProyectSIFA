@@ -103,21 +103,15 @@ module "private_sg" {
       to_port         = 22
       protocol        = "tcp"
       security_groups = [module.public_sg.sg_id]
+      description     = "SSH from gateway"
     },
     {
       from_port       = 80
       to_port         = 80
       protocol        = "tcp"
       security_groups = [module.public_sg.sg_id]
-    },
-    {
-      from_port   = 80
-      to_port     = 80
-      protocol    = "tcp"
-      cidr_blocks = ["10.0.2.0/24"] # El CIDR de tu subred privada
-      description = "Allow HTTP between internal microservices"
+      description     = "HTTP from gateway"
     }
-
   ]
 
   egress_rules = [
@@ -126,6 +120,71 @@ module "private_sg" {
       to_port     = 0
       protocol    = "-1"
       cidr_blocks = ["0.0.0.0/0"]
+    }
+  ]
+}
+
+# SG dedicado a auth: único origen admitido hacia core (auditoría por Feign)
+module "auth_sg" {
+  source = "./modules/sg"
+
+  name        = "sifa-auth-sg"
+  description = "Auth service"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress_rules = [
+    {
+      from_port       = 80
+      to_port         = 80
+      protocol        = "tcp"
+      security_groups = [module.public_sg.sg_id]
+      description     = "HTTP from gateway"
+    },
+    {
+      from_port       = 22
+      to_port         = 22
+      protocol        = "tcp"
+      security_groups = [module.public_sg.sg_id]
+      description     = "SSH from gateway"
+    }
+  ]
+
+  egress_rules = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "All outbound"
+    }
+  ]
+}
+
+# SG dedicado a core: solo admite HTTP desde el SG de auth
+module "core_internal_sg" {
+  source = "./modules/sg"
+
+  name        = "sifa-core-internal-sg"
+  description = "Core internal ingress"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress_rules = [
+    {
+      from_port       = 80
+      to_port         = 80
+      protocol        = "tcp"
+      security_groups = [module.auth_sg.sg_id]
+      description     = "HTTP from auth (audit Feign client)"
+    }
+  ]
+
+  egress_rules = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "All outbound"
     }
   ]
 }
@@ -165,7 +224,7 @@ module "private_ec2" {
   ami                = local.ubuntu_ami
   instance_type      = "t3.micro"
   subnet_id          = module.vpc.private_subnet_id
-  security_group_ids = [module.private_sg.sg_id]
+  security_group_ids = [module.private_sg.sg_id, module.auth_sg.sg_id]
   private_ip         = local.auth_private_ip // Asignación de IP privada en la subnet privada
 
   key_name = local.key_name
@@ -201,7 +260,7 @@ module "private_ec2_core" {
   ami                  = local.ubuntu_ami
   instance_type        = "t3.micro"
   subnet_id            = module.vpc.private_subnet_id
-  security_group_ids   = [module.private_sg.sg_id]
+  security_group_ids   = [module.private_sg.sg_id, module.core_internal_sg.sg_id]
   private_ip           = local.core_private_ip // Asignación de IP privada en la subnet privada
   iam_instance_profile = "EMR_EC2_DefaultRole" // Perfil de IAM para permitir acceso a S3 desde la instancia
 
